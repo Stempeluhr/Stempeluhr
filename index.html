@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Stempeluhr</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
 <style>
 :root{--bg:#f4f4f4;--card:#fff;--ink:#111;--mut:#777;--line:#e2e2e2;--on:#1a1a1a}
 *{box-sizing:border-box;margin:0}
@@ -133,15 +135,12 @@ function kioskList() {
 }
 window.pick = id => { clearTimeout(backTimer); sel = id; render(); };
 function kioskEmp() {
-  const e = emps.find(x => x.id === sel), o = openShift(sel), br = onBreak(o);
-  const st = !o ? "Nicht eingestempelt" : br ? "In Pause seit " + fmtT(o.breaks.at(-1).s) : "Eingestempelt seit " + fmtT(o.start_at);
-  const yy = new Date().getFullYear() * 12 + new Date().getMonth();
-  return `<div class="who"><h2>${esc(e.name)}</h2><p>${st}</p><p style="font-size:15px">Dieser Monat: ${fmtH(istOf(e.id, yy))} von ${fmtH(e.target_hours * 3600000)} Std · Gesamtsaldo ${fmtSaldo(total(e, yy))}</p></div>
+  const e = emps.find(x => x.id === sel), o = openShift(sel);
+  const st = !o ? "Nicht eingestempelt" : "Eingestempelt seit " + fmtT(o.start_at);
+  return `<div class="who"><h2>${esc(e.name)}</h2><p>${st}</p></div>
   <div class="actions">
     <button class="big pri" ${o ? "disabled" : ""} onclick="act('in')">Einstempeln</button>
-    <button class="big" ${!o || br ? "disabled" : ""} onclick="act('bs')">Pause starten</button>
-    <button class="big" ${!br ? "disabled" : ""} onclick="act('be')">Pause beenden</button>
-    <button class="big pri" ${!o || br ? "disabled" : ""} onclick="act('out')">Ausstempeln</button>
+    <button class="big pri" ${!o ? "disabled" : ""} onclick="act('out')">Ausstempeln</button>
   </div><button class="link back" onclick="sel=null;render()">Zurück zur Liste</button>`;
 }
 const ymOf = d => { d = new Date(d); return d.getFullYear() * 12 + d.getMonth(); };
@@ -188,8 +187,8 @@ function adminLive() {
 function adminMonth() {
   const st = stats(), tot = st.reduce((a, x) => ({ ist: a.ist + x.ist, soll: a.soll + x.soll, total: a.total + x.total }), { ist: 0, soll: 0, total: 0 });
   const c = v => v >= 0 ? "pos" : "neg";
-  return monthBar(`<button class="btn" onclick="exportMonth()">CSV: Monatsübersicht</button><button class="btn" onclick="exportShifts()">CSV: Einzelschichten</button>`) +
-  `<div class="panel"><table><tr><th>Mitarbeiter</th><th class="n">Ist</th><th class="n">Soll</th><th class="n">Plus/Minus Monat</th><th class="n">Gesamtsaldo</th><th></th></tr>${st.map(x => `<tr><td><strong>${esc(x.e.name)}</strong></td><td class="n">${fmtH(x.ist)}</td><td class="n">${fmtH(x.soll)}</td><td class="n ${c(x.saldo)}">${fmtSaldo(x.saldo)}</td><td class="n ${c(x.total)}">${fmtSaldo(x.total)}</td><td class="n"><button class="btn" onclick="report('${x.e.id}')">Bericht</button></td></tr>`).join("")}
+  return monthBar(`<button class="btn pri" onclick="exportMonthPdf()">PDF: Monatsübersicht</button><button class="btn pri" onclick="exportShiftsPdf()">PDF: Einzelschichten</button><button class="btn" onclick="exportMonth()">CSV: Monatsübersicht</button><button class="btn" onclick="exportShifts()">CSV: Einzelschichten</button>`) +
+  `<div class="panel"><table><tr><th>Mitarbeiter</th><th class="n">Ist</th><th class="n">Soll</th><th class="n">Plus/Minus Monat</th><th class="n">Gesamtsaldo</th><th></th></tr>${st.map(x => `<tr><td><strong>${esc(x.e.name)}</strong></td><td class="n">${fmtH(x.ist)}</td><td class="n">${fmtH(x.soll)}</td><td class="n ${c(x.saldo)}">${fmtSaldo(x.saldo)}</td><td class="n ${c(x.total)}">${fmtSaldo(x.total)}</td><td class="n"><button class="btn" onclick="report('${x.e.id}')">PDF</button></td></tr>`).join("")}
   <tr><td><strong>Gesamt</strong></td><td class="n"><strong>${fmtH(tot.ist)}</strong></td><td class="n"><strong>${fmtH(tot.soll)}</strong></td><td class="n"><strong>${fmtSaldo(tot.ist - tot.soll)}</strong></td><td class="n"><strong>${fmtSaldo(tot.total)}</strong></td><td></td></tr></table></div>
   <p class="hint">Ist = gestempelte Zeit abzüglich Pausen, plus Urlaub/Krank. Fehlt die Pause, wird automatisch die Mindestpause aus den Einstellungen abgezogen. Gesamtsaldo = Anfangsbestand + alle Monate seit dem Startmonat (Soll gilt für den vollen Monat).</p>`;
 }
@@ -217,11 +216,10 @@ const REG = {
   aller: { n: "Allerheiligen (1.11.)", f: y => new Date(y, 10, 1, 12) }, buss: { n: "Buß- und Bettag", f: y => { const d = new Date(y, 10, 22, 12); while (d.getDay() !== 3) d.setDate(d.getDate() - 1); return d; } }
 };
 const holSet = y => { const e = easter(y); return new Set([new Date(y, 0, 1, 12), addD(e, -2), addD(e, 1), new Date(y, 4, 1, 12), addD(e, 39), addD(e, 50), new Date(y, 9, 3, 12), new Date(y, 11, 25, 12), new Date(y, 11, 26, 12), ...opt.regional.filter(k => REG[k]).map(k => REG[k].f(y))].map(iso)); };
-const workedHol = (id, Y) => { const hs = holSet(Y); return new Set(shifts.filter(s => s.employee_id === id && new Date(s.start_at).getFullYear() === Y).map(s => iso(s.start_at)).filter(d => hs.has(d))).size; };
 function adminSet() {
   const b = [...opt.breaks, {}, {}, {}].slice(0, 3);
   return `<div class="panel" style="padding:20px"><h3>Automatischer Pausenabzug</h3><p class="hint">Gilt nur, wenn weniger Pause gestempelt wurde. Leere Zeilen werden nicht verwendet.</p>${b.map((x, i) => `<div class="bar" style="margin-top:10px">Bei mehr als <input type="number" step="0.25" id="bh${i}" style="width:90px" value="${x.h ?? ""}"> Std. Arbeitszeit mindestens <input type="number" id="bm${i}" style="width:90px" value="${x.m ?? ""}"> Min. Pause</div>`).join("")}<div style="margin-top:14px"><button class="btn pri" onclick="saveBreaks()">Speichern</button></div></div>
-  <div class="panel" style="padding:20px;margin-top:16px"><h3>Feiertage</h3><p class="hint">Bundesweite Feiertage sind immer dabei. Wähle zusätzlich die Feiertage deines Bundeslands. Gestempelt wird an Feiertagen ganz normal. Jeder gearbeitete Feiertag wird dem Mitarbeiter als Urlaubstag gutgeschrieben.</p>${Object.entries(REG).map(([k, v]) => `<label style="display:block;margin:10px 0"><input type="checkbox" ${opt.regional.includes(k) ? "checked" : ""} onchange="togReg('${k}',this.checked)"> ${v.n}</label>`).join("")}</div>`;
+  <div class="panel" style="padding:20px;margin-top:16px"><h3>Feiertage</h3><p class="hint">Bundesweite Feiertage sind immer dabei. Wähle zusätzlich die Feiertage deines Bundeslands. Gestempelt wird an Feiertagen ganz normal. Feiertage werden bei den Schichten nur als „(Feiertag)“ markiert, es gibt keine Gutschrift als Urlaubstag.</p>${Object.entries(REG).map(([k, v]) => `<label style="display:block;margin:10px 0"><input type="checkbox" ${opt.regional.includes(k) ? "checked" : ""} onchange="togReg('${k}',this.checked)"> ${v.n}</label>`).join("")}</div>`;
 }
 window.saveBreaks = async () => {
   const b = [0, 1, 2].map(i => ({ h: parseFloat($("#bh" + i).value), m: parseFloat($("#bm" + i).value) })).filter(x => x.h > 0 && x.m > 0).sort((p, q) => p.h - q.h);
@@ -236,12 +234,12 @@ window.togReg = async (k, on) => {
 function adminAbs() {
   const Y = month.getFullYear(), y = Y * 12 + month.getMonth(), list = absent.filter(a => ymOf(a.day + "T12:00") === y).sort((a, b) => a.day < b.day ? 1 : -1);
   const rows = emps.filter(e => e.active).map(e => {
-    const mine = absent.filter(a => a.employee_id === e.id && new Date(a.day + "T12:00").getFullYear() === Y), taken = mine.filter(a => a.type === "Urlaub").length, sick = mine.filter(a => a.type === "Krank").length, hol = workedHol(e.id, Y);
-    const rest = Number(e.vacation_days || 0) + Number(e.vacation_carry || 0) + hol - taken;
-    return `<tr><td><strong>${esc(e.name)}</strong></td><td class="n"><input type="number" step="0.5" style="width:80px" value="${e.vacation_days || 0}" onchange="saveEmp('${e.id}',{vacation_days:+this.value})"></td><td class="n"><input type="number" step="0.5" style="width:80px" value="${e.vacation_carry || 0}" onchange="saveEmp('${e.id}',{vacation_carry:+this.value})"></td><td class="n">${hol}</td><td class="n">${taken}</td><td class="n ${rest >= 0 ? "pos" : "neg"}">${rest}</td><td class="n">${sick}</td></tr>`;
+    const mine = absent.filter(a => a.employee_id === e.id && new Date(a.day + "T12:00").getFullYear() === Y), taken = mine.filter(a => a.type === "Urlaub").length, sick = mine.filter(a => a.type === "Krank").length;
+    const rest = Number(e.vacation_days || 0) + Number(e.vacation_carry || 0) - taken;
+    return `<tr><td><strong>${esc(e.name)}</strong></td><td class="n"><input type="number" step="0.5" style="width:80px" value="${e.vacation_days || 0}" onchange="saveEmp('${e.id}',{vacation_days:+this.value})"></td><td class="n"><input type="number" step="0.5" style="width:80px" value="${e.vacation_carry || 0}" onchange="saveEmp('${e.id}',{vacation_carry:+this.value})"></td><td class="n">${taken}</td><td class="n ${rest >= 0 ? "pos" : "neg"}">${rest}</td><td class="n">${sick}</td></tr>`;
   }).join("");
-  return `<h3 style="margin-bottom:12px">Urlaubskonto ${Y}</h3><div class="panel"><table><tr><th>Mitarbeiter</th><th class="n">Anspruch (Tage)</th><th class="n">Übertrag Vorjahr</th><th class="n">Feiertage gearbeitet</th><th class="n">Urlaub genommen</th><th class="n">Resturlaub</th><th class="n">Krankheitstage</th></tr>${rows}</table></div>
-  <p class="hint">Resturlaub = Anspruch + Übertrag + gearbeitete Feiertage − genommener Urlaub. Die Feiertage stellst du unter „Einstellungen“ ein. Urlaub und Krankheit zählen außerdem als Ist-Stunden.</p><div style="height:22px"></div>` +
+  return `<h3 style="margin-bottom:12px">Urlaubskonto ${Y}</h3><div class="panel"><table><tr><th>Mitarbeiter</th><th class="n">Anspruch (Tage)</th><th class="n">Übertrag Vorjahr</th><th class="n">Urlaub genommen</th><th class="n">Resturlaub</th><th class="n">Krankheitstage</th></tr>${rows}</table></div>
+  <p class="hint">Resturlaub = Anspruch + Übertrag − genommener Urlaub. Urlaub und Krankheit zählen außerdem als Ist-Stunden.</p><div style="height:22px"></div>` +
   monthBar(`<button class="btn pri" onclick="addAbs()">Eintrag hinzufügen</button>`) + (!list.length ? `<div class="panel"><div class="empty">Keine Einträge in diesem Monat.</div></div>` :
   `<div class="panel"><table><tr><th>Mitarbeiter</th><th>Datum</th><th>Art</th><th class="n">Stunden</th><th></th></tr>${list.map(a => `<tr><td>${esc(emps.find(e => e.id === a.employee_id)?.name)}</td><td>${new Date(a.day + "T12:00").toLocaleDateString("de-DE")}</td><td>${esc(a.type)}</td><td class="n">${fmtH(a.hours * 3600000)}</td><td class="n"><button class="btn" onclick="delAbs('${a.id}')">Löschen</button></td></tr>`).join("")}</table></div>`);
 }
@@ -260,13 +258,43 @@ window.saveAbs = async () => {
 };
 window.delAbs = async id => { if (!confirm("Eintrag löschen?")) return; await sb.from("absences").delete().eq("id", id); load(); };
 window.backup = () => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify({ exportiert: new Date().toISOString(), employees: emps, shifts, absences: absent }, null, 1)], { type: "application/json" })); a.download = "Backup_Stempeluhr_" + new Date().toISOString().slice(0, 10) + ".json"; a.click(); };
+const pdfTxt = v => String(v ?? "").replace(/−/g, "-");
+const pdfRows = rows => rows.map(r => r.map(c => (c && typeof c === "object") ? { ...c, content: pdfTxt(c.content) } : pdfTxt(c)));
+const pdfStart = () => { if (!window.jspdf || !window.jspdf.jsPDF) { toast("PDF-Funktion nicht geladen – bitte Internet prüfen und Seite neu laden"); return null; } return new window.jspdf.jsPDF(); };
+const monthLabel = () => month.toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+const fileName = n => String(n).replace(/[^A-Za-z0-9äöüÄÖÜß-]+/g, "_");
+window.exportMonthPdf = () => {
+  const doc = pdfStart(); if (!doc) return;
+  const st = stats(), t = st.reduce((a, x) => ({ ist: a.ist + x.ist, soll: a.soll + x.soll, total: a.total + x.total }), { ist: 0, soll: 0, total: 0 });
+  doc.setFontSize(16); doc.text(pdfTxt("Monatsübersicht " + monthLabel()), 14, 18);
+  doc.autoTable({ startY: 26, head: [["Mitarbeiter", "Ist", "Soll", "Plus/Minus Monat", "Gesamtsaldo"]],
+    body: pdfRows([...st.map(x => [x.e.name, fmtH(x.ist), fmtH(x.soll), fmtSaldo(x.saldo), fmtSaldo(x.total)]), ["Gesamt", fmtH(t.ist), fmtH(t.soll), fmtSaldo(t.ist - t.soll), fmtSaldo(t.total)]]),
+    styles: { fontSize: 10 }, headStyles: { fillColor: [26, 26, 26] }, columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" } },
+    didParseCell: h => { if (h.row.index === st.length) h.cell.styles.fontStyle = "bold"; } });
+  doc.save(`Monatsuebersicht_${ym()}.pdf`);
+};
+window.exportShiftsPdf = () => {
+  const doc = pdfStart(); if (!doc) return;
+  const list = shifts.filter(s => new Date(s.start_at) >= mStart() && new Date(s.start_at) < mEnd()).sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
+  doc.setFontSize(16); doc.text(pdfTxt("Einzelschichten " + monthLabel()), 14, 18);
+  doc.autoTable({ startY: 26, head: [["Mitarbeiter", "Datum", "Beginn", "Ende", "Pause", "Arbeitszeit"]],
+    body: pdfRows(list.map(s => [emps.find(e => e.id === s.employee_id)?.name || "", new Date(s.start_at).toLocaleDateString("de-DE"), fmtT(s.start_at), s.end_at ? fmtT(s.end_at) : "offen", Math.round(effBreak(s) / MIN) + " Min", fmtH(workMs(s))])),
+    styles: { fontSize: 9 }, headStyles: { fillColor: [26, 26, 26] }, columnStyles: { 4: { halign: "right" }, 5: { halign: "right" } } });
+  doc.save(`Schichten_${ym()}.pdf`);
+};
 window.report = id => {
+  const doc = pdfStart(); if (!doc) return;
   const e = emps.find(x => x.id === id), y = month.getFullYear() * 12 + month.getMonth(), st = stats().find(x => x.e.id === id), dd = d => new Date(d).toLocaleDateString("de-DE");
-  const rows = monthShifts(id).sort((a, b) => new Date(a.start_at) - new Date(b.start_at)).map(s => `<tr><td>${dd(s.start_at)}</td><td>${fmtT(s.start_at)}</td><td>${s.end_at ? fmtT(s.end_at) : "offen"}</td><td>${Math.round(effBreak(s) / MIN)} Min</td><td>${fmtH(workMs(s))}</td></tr>`).join("");
-  const ab = absent.filter(a => a.employee_id === id && ymOf(a.day + "T12:00") === y).sort((a, b) => a.day < b.day ? -1 : 1).map(a => `<tr><td>${dd(a.day + "T12:00")}</td><td colspan="3">${esc(a.type)}</td><td>${fmtH(a.hours * 3600000)}</td></tr>`).join("");
-  const w = window.open("", "_blank");
-  w.document.write(`<!DOCTYPE html><meta charset="utf-8"><title>Monatsbericht ${esc(e.name)}</title><style>body{font-family:Arial,sans-serif;padding:30px}table{border-collapse:collapse;width:100%;margin:16px 0}td,th{border-bottom:1px solid #ccc;padding:8px;text-align:left}</style><h2>Monatsbericht ${esc(e.name)}</h2><p>${month.toLocaleDateString("de-DE", { month: "long", year: "numeric" })}</p><table><tr><th>Datum</th><th>Beginn</th><th>Ende</th><th>Pause</th><th>Arbeitszeit</th></tr>${rows}${ab}</table><p>Ist: <b>${fmtH(st.ist)}</b> · Soll: <b>${fmtH(st.soll)}</b> · Plus/Minus Monat: <b>${fmtSaldo(st.saldo)}</b> · Gesamtsaldo: <b>${fmtSaldo(st.total)}</b></p><script>setTimeout(function(){print()},300)<\/script>`);
-  w.document.close();
+  const rows = monthShifts(id).sort((a, b) => new Date(a.start_at) - new Date(b.start_at)).map(s => [dd(s.start_at), fmtT(s.start_at), s.end_at ? fmtT(s.end_at) : "offen", Math.round(effBreak(s) / MIN) + " Min", fmtH(workMs(s))]);
+  const ab = absent.filter(a => a.employee_id === id && ymOf(a.day + "T12:00") === y).sort((a, b) => a.day < b.day ? -1 : 1).map(a => [dd(a.day + "T12:00"), { content: a.type, colSpan: 3 }, fmtH(a.hours * 3600000)]);
+  doc.setFontSize(16); doc.text(pdfTxt("Monatsbericht " + e.name), 14, 18);
+  doc.setFontSize(11); doc.text(pdfTxt(monthLabel()), 14, 25);
+  doc.autoTable({ startY: 31, head: [["Datum", "Beginn", "Ende", "Pause", "Arbeitszeit"]], body: pdfRows([...rows, ...ab]), styles: { fontSize: 10 }, headStyles: { fillColor: [26, 26, 26] }, columnStyles: { 3: { halign: "right" }, 4: { halign: "right" } } });
+  const y0 = doc.lastAutoTable.finalY + 10;
+  doc.setFontSize(11);
+  doc.text(pdfTxt(`Ist: ${fmtH(st.ist)}   Soll: ${fmtH(st.soll)}   Plus/Minus Monat: ${fmtSaldo(st.saldo)}`), 14, y0);
+  doc.text(pdfTxt(`Gesamtsaldo: ${fmtSaldo(st.total)}`), 14, y0 + 7);
+  doc.save(`Bericht_${fileName(e.name)}_${ym()}.pdf`);
 };
 
 /* ---------- Admin-Aktionen ---------- */
@@ -277,11 +305,19 @@ window.editShift = id => {
   const d = $("#dlg");
   d.innerHTML = `<h3>${id ? "Schicht korrigieren" : "Schicht hinzufügen"}</h3>
   <label>Mitarbeiter</label><select id="f_e" class="w" style="width:100%">${emps.map(e => `<option value="${e.id}" ${e.id === s.employee_id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select>
-  <label>Beginn</label><input class="w" id="f_s" type="datetime-local" value="${toLocal(s.start_at)}">
-  <label>Ende (leer = noch eingestempelt)</label><input class="w" id="f_x" type="datetime-local" value="${s.end_at ? toLocal(s.end_at) : ""}">
-  <label>Pause gesamt (Minuten)</label><input class="w" id="f_b" type="number" min="0" value="${Math.round(breakMs(s) / MIN)}">
+  <label>Beginn</label><input class="w" id="f_s" type="datetime-local" value="${toLocal(s.start_at)}" oninput="prevShift()" onchange="prevShift()">
+  <label>Ende (leer = noch eingestempelt)</label><input class="w" id="f_x" type="datetime-local" value="${s.end_at ? toLocal(s.end_at) : ""}" oninput="prevShift()" onchange="prevShift()">
+  <label>Pause gesamt (Minuten) – leer lassen = automatisch</label><input class="w" id="f_b" type="number" min="0" value="${breakMs(s) ? Math.round(breakMs(s) / MIN) : ""}" oninput="prevShift()">
+  <p class="hint" id="f_p"></p>
   <div class="row"><button class="btn pri" onclick="saveShift('${id || ""}')">Speichern</button><button class="btn" onclick="$('#dlg').close()">Abbrechen</button><span class="sp"></span>${id ? `<button class="btn" onclick="delShift('${id}')">Löschen</button>` : ""}</div>`;
-  d.showModal();
+  d.showModal(); prevShift();
+};
+window.prevShift = () => {
+  const p = $("#f_p"); if (!p) return;
+  const st = new Date($("#f_s").value), xv = $("#f_x").value, en = xv ? new Date(xv) : null, bm = +$("#f_b").value || 0;
+  if (isNaN(st) || !en || en <= st) { p.textContent = ""; return; }
+  const f = { start_at: st.toISOString(), end_at: en.toISOString(), breaks: bm ? [{ s: new Date(+st + 1).toISOString(), e: new Date(+st + 1 + bm * MIN).toISOString() }] : [] };
+  p.textContent = `Pause: ${Math.round(effBreak(f) / MIN)} Min${effBreak(f) > breakMs(f) ? " (automatisch)" : ""} · Arbeitszeit: ${fmtH(workMs(f))} Std`;
 };
 window.saveShift = async id => {
   const start = new Date($("#f_s").value), endV = $("#f_x").value, end = endV ? new Date(endV) : null, bm = +$("#f_b").value || 0;
@@ -301,17 +337,27 @@ window.exportMonth = () => download(`Monatsuebersicht_${ym()}.csv`, csv([["Mitar
 window.exportShifts = () => download(`Schichten_${ym()}.csv`, csv([["Mitarbeiter", "Datum", "Beginn", "Ende", "Pause (Min)", "Arbeitszeit (Std)"], ...shifts.filter(s => new Date(s.start_at) >= mStart() && new Date(s.start_at) < mEnd()).sort((a, b) => new Date(a.start_at) - new Date(b.start_at)).map(s => [emps.find(e => e.id === s.employee_id)?.name || "", new Date(s.start_at).toLocaleDateString("de-DE"), fmtT(s.start_at), s.end_at ? fmtT(s.end_at) : "offen", Math.round(effBreak(s) / MIN), dec(workMs(s))])]));
 
 /* ---------- Start ---------- */
+const askPw = title => new Promise(res => {
+  const d = $("#dlg"); let done = false;
+  d.innerHTML = `<h3>${title}</h3><label>Passwort</label><input class="w" id="pw_i" type="password" autocomplete="off"><div class="row"><button class="btn pri" id="pw_ok">OK</button><button class="btn" id="pw_no">Abbrechen</button></div>`;
+  const fin = v => { if (done) return; done = true; d.onclose = null; if (d.open) d.close(); res(v); };
+  $("#pw_ok").onclick = () => fin($("#pw_i").value || null);
+  $("#pw_no").onclick = () => fin(null);
+  $("#pw_i").onkeydown = ev => { if (ev.key === "Enter") fin($("#pw_i").value || null); };
+  d.onclose = () => fin(null);
+  d.showModal(); $("#pw_i").focus();
+});
 const sha = async x => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(x)))].map(b => b.toString(16).padStart(2, "0")).join("");
 async function unlock() {
   if (sessionStorage.getItem("adm") === "1") return true;
   const r = await sb.from("settings").select("value").eq("key", "admin_pw").maybeSingle();
   if (r.error) { toast("Fehler: " + r.error.message); return false; }
-  if (!r.data) { const p = prompt("Noch kein Admin-Passwort. Neues Passwort festlegen:"); if (!p) return false; await sb.from("settings").upsert({ key: "admin_pw", value: await sha(p) }); sessionStorage.setItem("adm", "1"); return true; }
-  const p = prompt("Admin-Passwort:"); if (!p) return false;
+  if (!r.data) { const p = await askPw("Noch kein Admin-Passwort. Neues Passwort festlegen:"); if (!p) return false; await sb.from("settings").upsert({ key: "admin_pw", value: await sha(p) }); sessionStorage.setItem("adm", "1"); return true; }
+  const p = await askPw("Admin-Passwort"); if (!p) return false;
   if (await sha(p) !== r.data.value) { toast("Falsches Passwort"); return false; }
   sessionStorage.setItem("adm", "1"); return true;
 }
-window.setPw = async () => { const p = prompt("Neues Admin-Passwort:"); if (!p) return; await sb.from("settings").upsert({ key: "admin_pw", value: await sha(p) }); toast("Passwort geändert"); };
+window.setPw = async () => { const p = await askPw("Neues Admin-Passwort"); if (!p) return; await sb.from("settings").upsert({ key: "admin_pw", value: await sha(p) }); toast("Passwort geändert"); };
 $("#mode").onclick = async () => { if (view === "kiosk") { if (!await unlock()) return; view = "admin"; } else { view = "kiosk"; sessionStorage.removeItem("adm"); } sel = null; render(); };
 setInterval(() => { const n = new Date(); $("#clock").textContent = n.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }); }, 1000);
 function setup() {
