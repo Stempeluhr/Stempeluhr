@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stempeluhr</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+:root{--bg:#f4f4f4;--card:#fff;--ink:#111;--mut:#777;--line:#e2e2e2;--on:#1a1a1a}
+*{box-sizing:border-box;margin:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh}
+button,input,select{font:inherit;color:inherit}
+header{display:flex;justify-content:space-between;align-items:center;padding:20px 28px}
+header h1{font-size:20px;font-weight:600;letter-spacing:-.02em}
+.clock{font-size:34px;font-weight:300;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.link{background:none;border:0;color:var(--mut);cursor:pointer;font-size:14px;padding:8px}
+.link:hover{color:var(--ink)}
+main{padding:0 28px 40px;max-width:1100px;margin:0 auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
+.emp{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px 20px;font-size:20px;font-weight:500;cursor:pointer;text-align:left;display:flex;justify-content:space-between;align-items:center}
+.emp:active{background:#eee}
+.dot{width:12px;height:12px;border-radius:50%;background:#ccc;flex:none}
+.dot.in{background:var(--on)}.dot.br{background:#fff;border:3px solid var(--on)}
+.who{text-align:center;padding:10px 0 26px}
+.who h2{font-size:44px;font-weight:600;letter-spacing:-.03em}
+.who p{color:var(--mut);margin-top:8px;font-size:18px}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:760px;margin:0 auto}
+.big{height:150px;border-radius:16px;border:2px solid var(--ink);background:var(--card);font-size:26px;font-weight:600;cursor:pointer}
+.big.pri{background:var(--ink);color:#fff}
+.big:disabled{opacity:.18;cursor:not-allowed}
+.back{display:block;margin:26px auto 0}
+.toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:16px 28px;border-radius:12px;font-size:18px}
+.tabs{display:flex;gap:4px;margin-bottom:22px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.tab{background:none;border:0;padding:12px 16px;cursor:pointer;color:var(--mut);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab.on{color:var(--ink);border-color:var(--ink);font-weight:600}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{padding:13px 16px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-weight:500;color:var(--mut);font-size:13px}
+tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.pos{font-weight:600}.neg{color:var(--mut)}
+.bar{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+.btn{border:1px solid var(--ink);background:var(--card);border-radius:10px;padding:10px 16px;cursor:pointer;font-size:14px}
+.btn.pri{background:var(--ink);color:#fff}
+.sp{flex:1}
+input,select{border:1px solid var(--line);border-radius:8px;padding:9px 11px;background:#fff;font-size:14px}
+input.w{width:100%}
+.empty{padding:34px;text-align:center;color:var(--mut)}
+dialog{border:0;border-radius:16px;padding:26px;width:min(420px,92vw);box-shadow:0 20px 60px rgba(0,0,0,.25)}
+dialog::backdrop{background:rgba(0,0,0,.4)}
+dialog label{display:block;font-size:13px;color:var(--mut);margin:14px 0 5px}
+dialog .row{display:flex;gap:10px;margin-top:22px}
+.setup{max-width:620px;margin:40px auto}
+.setup h2{margin-bottom:10px}.setup p{color:var(--mut);margin:8px 0 16px;line-height:1.5}
+.setup input{width:100%;margin-bottom:10px}
+.hint{color:var(--mut);font-size:13px;margin-top:12px;line-height:1.5}
+@media(max-width:700px){.actions{grid-template-columns:1fr}.big{height:100px}.who h2{font-size:34px}}
+</style>
+</head>
+<body>
+<header><h1 id="ttl">Stempeluhr</h1><div class="clock" id="clock"></div><button class="link" id="mode"></button></header>
+<main id="app"></main>
+<div class="toast" id="toast" hidden></div>
+<dialog id="dlg"></dialog>
+
+<script>
+/* ===== HIER DEINE SUPABASE-DATEN EINTRAGEN (siehe Anleitung) ===== */
+const SUPABASE_URL = "https://asrgwktumpxozlfjgerj.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFzcmd3a3R1bXB4b3psZmpnZXJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM2MDM4OTUsImV4cCI6MjEwOTE3OTg5NX0.E1cYMJvme6c722T3G91ECf3MdEuMUIV8WmcLOfdv8Lk";
+/* ================================================================ */
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const cfg = { url: SUPABASE_URL || localStorage.getItem("sb_url") || "", key: SUPABASE_KEY || localStorage.getItem("sb_key") || "" };
+let sb, emps = [], shifts = [], absent = [], opt = { breaks: [{ h: 6, m: 30 }, { h: 9, m: 45 }], regional: [] }, view = "kiosk", sel = null, tab = "live", month = new Date(), backTimer;
+month.setDate(1); month.setHours(0,0,0,0);
+
+/* ---------- Hilfsfunktionen ---------- */
+const MIN = 60000;
+const fmtH = ms => { const neg = ms < 0, m = Math.round(Math.abs(ms) / MIN); return (neg ? "−" : "") + Math.floor(m / 60) + ":" + String(m % 60).padStart(2, "0"); };
+const fmtSaldo = ms => (ms > 0 ? "+" : "") + fmtH(ms);
+const fmtDT = d => new Date(d).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+const fmtT = d => new Date(d).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+const toLocal = d => { const x = new Date(d); return new Date(x - x.getTimezoneOffset() * MIN).toISOString().slice(0, 16); };
+const breakMs = s => { const end = s.end_at ? +new Date(s.end_at) : Date.now(); return (s.breaks || []).reduce((a, b) => a + (b.e ? +new Date(b.e) : end) - +new Date(b.s), 0); };
+const grossMs = s => (s.end_at ? +new Date(s.end_at) : Date.now()) - +new Date(s.start_at);
+const reqBreak = g => opt.breaks.reduce((r, b) => g > b.h * 3600000 ? Math.max(r, b.m * MIN) : r, 0);
+const effBreak = s => Math.max(breakMs(s), reqBreak(grossMs(s)));
+const workMs = s => Math.max(0, grossMs(s) - effBreak(s));
+const mStart = () => new Date(month), mEnd = () => new Date(month.getFullYear(), month.getMonth() + 1, 1);
+const openShift = id => shifts.find(s => s.employee_id === id && !s.end_at);
+const onBreak = s => s && (s.breaks || []).some(b => !b.e);
+const monthShifts = id => shifts.filter(s => s.employee_id === id && new Date(s.start_at) >= mStart() && new Date(s.start_at) < mEnd());
+function toast(t) { const e = $("#toast"); e.textContent = t; e.hidden = false; setTimeout(() => e.hidden = true, 2500); }
+function csv(rows) { return "\ufeff" + rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(";")).join("\r\n"); }
+function download(name, text) { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" })); a.download = name; a.click(); }
+const dec = ms => (ms / 3600000).toFixed(2).replace(".", ",");
+
+/* ---------- Daten ---------- */
+async function all(tb, ord) { let out = [], i = 0; for (;;) { const r = await sb.from(tb).select("*").order(ord, { ascending: false }).range(i, i + 999); if (r.error) return { error: r.error }; out = out.concat(r.data); if (r.data.length < 1000) return { data: out }; i += 1000; } }
+async function load() {
+  const [e, s, a, c] = await Promise.all([sb.from("employees").select("*").order("name"), all("shifts", "start_at"), all("absences", "day"), sb.from("settings").select("*").neq("key", "admin_pw")]);
+  const err = e.error || s.error || a.error || c.error;
+  if (err) { toast("Verbindungsfehler: " + err.message); return; }
+  (c.data || []).forEach(r => { try { if (r.key === "breaks") opt.breaks = JSON.parse(r.value); if (r.key === "regional") opt.regional = JSON.parse(r.value); } catch (x) {} });
+  emps = e.data; shifts = s.data; absent = a.data; render();
+}
+async function act(type) {
+  const id = sel, o = openShift(id), now = new Date().toISOString();
+  let r;
+  if (type === "in") r = await sb.from("shifts").insert({ employee_id: id, start_at: now, breaks: [] });
+  if (type === "bs") r = await sb.from("shifts").update({ breaks: [...o.breaks, { s: now }] }).eq("id", o.id);
+  if (type === "be") r = await sb.from("shifts").update({ breaks: o.breaks.map(b => b.e ? b : { ...b, e: now }) }).eq("id", o.id);
+  if (type === "out") r = await sb.from("shifts").update({ end_at: now, breaks: o.breaks.map(b => b.e ? b : { ...b, e: now }) }).eq("id", o.id);
+  if (r.error) return toast("Fehler: " + r.error.message);
+  const name = emps.find(x => x.id === id).name;
+  toast({ in: "Eingestempelt", bs: "Pause gestartet", be: "Pause beendet", out: "Ausgestempelt" }[type] + " – " + name);
+  await load(); backTimer = setTimeout(() => { sel = null; render(); }, 1800);
+}
+
+/* ---------- Rendering ---------- */
+function render() {
+  if (!sb) return;
+  $("#mode").textContent = view === "kiosk" ? "Admin" : "Kiosk";
+  $("#ttl").textContent = view === "kiosk" ? "Stempeluhr" : "Admin";
+  $("#app").innerHTML = view === "kiosk" ? (sel ? kioskEmp() : kioskList()) : admin();
+}
+function kioskList() {
+  const act = emps.filter(e => e.active);
+  if (!act.length) return `<div class="empty">Noch keine Mitarbeiter. Im Admin-Bereich unter „Mitarbeiter“ anlegen.</div>`;
+  return `<div class="grid">${act.map(e => { const o = openShift(e.id); return `<button class="emp" onclick="pick('${e.id}')"><span>${esc(e.name)}</span><span class="dot ${o ? (onBreak(o) ? "br" : "in") : ""}"></span></button>`; }).join("")}</div>`;
+}
+window.pick = id => { clearTimeout(backTimer); sel = id; render(); };
+function kioskEmp() {
+  const e = emps.find(x => x.id === sel), o = openShift(sel), br = onBreak(o);
+  const st = !o ? "Nicht eingestempelt" : br ? "In Pause seit " + fmtT(o.breaks.at(-1).s) : "Eingestempelt seit " + fmtT(o.start_at);
+  const yy = new Date().getFullYear() * 12 + new Date().getMonth();
+  return `<div class="who"><h2>${esc(e.name)}</h2><p>${st}</p><p style="font-size:15px">Dieser Monat: ${fmtH(istOf(e.id, yy))} von ${fmtH(e.target_hours * 3600000)} Std · Gesamtsaldo ${fmtSaldo(total(e, yy))}</p></div>
+  <div class="actions">
+    <button class="big pri" ${o ? "disabled" : ""} onclick="act('in')">Einstempeln</button>
+    <button class="big" ${!o || br ? "disabled" : ""} onclick="act('bs')">Pause starten</button>
+    <button class="big" ${!br ? "disabled" : ""} onclick="act('be')">Pause beenden</button>
+    <button class="big pri" ${!o || br ? "disabled" : ""} onclick="act('out')">Ausstempeln</button>
+  </div><button class="link back" onclick="sel=null;render()">Zurück zur Liste</button>`;
+}
+const ymOf = d => { d = new Date(d); return d.getFullYear() * 12 + d.getMonth(); };
+const absMs = (id, y) => absent.filter(a => a.employee_id === id && ymOf(a.day + "T12:00") === y).reduce((s, a) => s + a.hours * 3600000, 0);
+const istOf = (id, y) => shifts.filter(s => s.employee_id === id && ymOf(s.start_at) === y).reduce((a, s) => a + workMs(s), 0) + absMs(id, y);
+function total(e, y) {
+  const ds = [...shifts.filter(s => s.employee_id === e.id).map(s => s.start_at), ...absent.filter(a => a.employee_id === e.id).map(a => a.day + "T12:00")];
+  const from = e.start_month ? ymOf(e.start_month + "-01T12:00") : ds.length ? Math.min(...ds.map(ymOf)) : y;
+  let t = Number(e.start_balance) * 3600000;
+  for (let m = from; m <= y; m++) t += istOf(e.id, m) - Number(e.target_hours) * 3600000;
+  return t;
+}
+function stats() {
+  const y = month.getFullYear() * 12 + month.getMonth();
+  return emps.filter(e => e.active).map(e => {
+    const ist = istOf(e.id, y), soll = Number(e.target_hours) * 3600000;
+    return { e, ist, soll, saldo: ist - soll, total: total(e, y) };
+  });
+}
+function admin() {
+  const tabs = [["live", "Live"], ["month", "Monat"], ["shifts", "Schichten & Korrekturen"], ["abs", "Urlaub & Krank"], ["emps", "Mitarbeiter"], ["set", "Einstellungen"]];
+  let body = "";
+  if (tab === "live") body = adminLive();
+  if (tab === "month") body = adminMonth();
+  if (tab === "shifts") body = adminShifts();
+  if (tab === "abs") body = adminAbs();
+  if (tab === "set") body = adminSet();
+  if (tab === "emps") body = adminEmps();
+  return `<div class="tabs">${tabs.map(([k, l]) => `<button class="tab ${tab === k ? "on" : ""}" onclick="tab='${k}';render()">${l}</button>`).join("")}</div>${body}`;
+}
+function monthBar(extra = "") {
+  const label = month.toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+  return `<div class="bar"><button class="btn" onclick="shiftMonth(-1)">‹</button><strong style="min-width:150px;text-align:center">${label}</strong><button class="btn" onclick="shiftMonth(1)">›</button><span class="sp"></span>${extra}</div>`;
+}
+window.shiftMonth = async d => { month = new Date(month.getFullYear(), month.getMonth() + d, 1); await load(); };
+function adminLive() {
+  const open = shifts.filter(s => !s.end_at);
+  if (!open.length) return `<div class="panel"><div class="empty">Aktuell ist niemand eingestempelt.</div></div>`;
+  return `<div class="panel"><table><tr><th>Mitarbeiter</th><th>Status</th><th>Seit</th><th class="n">Pause heute</th><th class="n">Gearbeitet</th></tr>${open.map(s => {
+    const e = emps.find(x => x.id === s.employee_id); if (!e) return "";
+    return `<tr><td><strong>${esc(e.name)}</strong></td><td>${onBreak(s) ? "In Pause" : "Arbeitet"}</td><td>${fmtDT(s.start_at)}</td><td class="n">${fmtH(breakMs(s))}</td><td class="n">${fmtH(workMs(s))}</td></tr>`;
+  }).join("")}</table></div>`;
+}
+function adminMonth() {
+  const st = stats(), tot = st.reduce((a, x) => ({ ist: a.ist + x.ist, soll: a.soll + x.soll, total: a.total + x.total }), { ist: 0, soll: 0, total: 0 });
+  const c = v => v >= 0 ? "pos" : "neg";
+  return monthBar(`<button class="btn" onclick="exportMonth()">CSV: Monatsübersicht</button><button class="btn" onclick="exportShifts()">CSV: Einzelschichten</button>`) +
+  `<div class="panel"><table><tr><th>Mitarbeiter</th><th class="n">Ist</th><th class="n">Soll</th><th class="n">Plus/Minus Monat</th><th class="n">Gesamtsaldo</th><th></th></tr>${st.map(x => `<tr><td><strong>${esc(x.e.name)}</strong></td><td class="n">${fmtH(x.ist)}</td><td class="n">${fmtH(x.soll)}</td><td class="n ${c(x.saldo)}">${fmtSaldo(x.saldo)}</td><td class="n ${c(x.total)}">${fmtSaldo(x.total)}</td><td class="n"><button class="btn" onclick="report('${x.e.id}')">Bericht</button></td></tr>`).join("")}
+  <tr><td><strong>Gesamt</strong></td><td class="n"><strong>${fmtH(tot.ist)}</strong></td><td class="n"><strong>${fmtH(tot.soll)}</strong></td><td class="n"><strong>${fmtSaldo(tot.ist - tot.soll)}</strong></td><td class="n"><strong>${fmtSaldo(tot.total)}</strong></td><td></td></tr></table></div>
+  <p class="hint">Ist = gestempelte Zeit abzüglich Pausen, plus Urlaub/Krank. Fehlt die Pause, wird automatisch die Mindestpause aus den Einstellungen abgezogen. Gesamtsaldo = Anfangsbestand + alle Monate seit dem Startmonat (Soll gilt für den vollen Monat).</p>`;
+}
+function adminShifts() {
+  const list = shifts.filter(s => new Date(s.start_at) >= mStart() && new Date(s.start_at) < mEnd());
+  return monthBar(`<button class="btn pri" onclick="editShift()">Schicht hinzufügen</button>`) + (!list.length ? `<div class="panel"><div class="empty">Keine Schichten in diesem Monat.</div></div>` :
+  `<div class="panel"><table><tr><th>Mitarbeiter</th><th>Beginn</th><th>Ende</th><th class="n">Pause</th><th class="n">Arbeitszeit</th><th></th></tr>${list.map(s => {
+    const e = emps.find(x => x.id === s.employee_id);
+    return `<tr><td>${esc(e?.name)}</td><td>${fmtDT(s.start_at)}${holSet(new Date(s.start_at).getFullYear()).has(iso(s.start_at)) ? " (Feiertag)" : ""}</td><td>${s.end_at ? fmtDT(s.end_at) : "<strong>offen</strong>"}</td><td class="n">${fmtH(effBreak(s))}${effBreak(s) > breakMs(s) ? " (auto)" : ""}</td><td class="n">${fmtH(workMs(s))}</td><td class="n"><button class="btn" onclick="editShift('${s.id}')">Bearbeiten</button></td></tr>`;
+  }).join("")}</table></div>`);
+}
+function adminEmps() {
+  return `<div class="bar"><button class="btn pri" onclick="addEmp()">Mitarbeiter hinzufügen</button><span class="sp"></span><button class="btn" onclick="backup()">Backup herunterladen</button><button class="btn" onclick="setPw()">Admin-Passwort ändern</button></div><div class="panel"><table><tr><th>Name</th><th>Soll pro Monat (Std)</th><th>Anfangsbestand ± (Std)</th><th>Zählt ab Monat</th><th>Aktiv</th></tr>${emps.map(e => `<tr><td><input value="${esc(e.name)}" onchange="saveEmp('${e.id}',{name:this.value})"></td><td><input type="number" min="0" step="0.5" style="width:100px" value="${e.target_hours}" onchange="saveEmp('${e.id}',{target_hours:+this.value})"></td><td><input type="number" step="0.25" style="width:100px" value="${e.start_balance}" onchange="saveEmp('${e.id}',{start_balance:+this.value})"></td><td><input type="month" value="${e.start_month || ""}" onchange="saveEmp('${e.id}',{start_month:this.value||null})"></td><td><input type="checkbox" ${e.active ? "checked" : ""} onchange="saveEmp('${e.id}',{active:this.checked})"></td></tr>`).join("")}</table></div>
+  <p class="hint">Anfangsbestand = Plus- oder Minusstunden, die ein Mitarbeiter mitbringt (Minus mit Vorzeichen, z. B. -12,5). „Zählt ab Monat“ = erster Monat, der in den Gesamtsaldo einfließt (leer = erster Monat mit Einträgen). Lade regelmäßig ein Backup herunter.</p>`;
+}
+
+/* ---------- Urlaub, Backup, Bericht ---------- */
+const easter = y => { const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, mm = Math.floor((a + 11 * h + 22 * l) / 451), x = h + l - 7 * mm + 114; return new Date(y, Math.floor(x / 31) - 1, (x % 31) + 1, 12); };
+const addD = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const iso = d => toLocal(d).slice(0, 10);
+const REG = {
+  drei: { n: "Heilige Drei Könige (6.1.)", f: y => new Date(y, 0, 6, 12) }, frauen: { n: "Internationaler Frauentag (8.3.)", f: y => new Date(y, 2, 8, 12) },
+  fron: { n: "Fronleichnam", f: y => addD(easter(y), 60) }, maria: { n: "Mariä Himmelfahrt (15.8.)", f: y => new Date(y, 7, 15, 12) },
+  kind: { n: "Weltkindertag (20.9.)", f: y => new Date(y, 8, 20, 12) }, reform: { n: "Reformationstag (31.10.)", f: y => new Date(y, 9, 31, 12) },
+  aller: { n: "Allerheiligen (1.11.)", f: y => new Date(y, 10, 1, 12) }, buss: { n: "Buß- und Bettag", f: y => { const d = new Date(y, 10, 22, 12); while (d.getDay() !== 3) d.setDate(d.getDate() - 1); return d; } }
+};
+const holSet = y => { const e = easter(y); return new Set([new Date(y, 0, 1, 12), addD(e, -2), addD(e, 1), new Date(y, 4, 1, 12), addD(e, 39), addD(e, 50), new Date(y, 9, 3, 12), new Date(y, 11, 25, 12), new Date(y, 11, 26, 12), ...opt.regional.filter(k => REG[k]).map(k => REG[k].f(y))].map(iso)); };
+const workedHol = (id, Y) => { const hs = holSet(Y); return new Set(shifts.filter(s => s.employee_id === id && new Date(s.start_at).getFullYear() === Y).map(s => iso(s.start_at)).filter(d => hs.has(d))).size; };
+function adminSet() {
+  const b = [...opt.breaks, {}, {}, {}].slice(0, 3);
+  return `<div class="panel" style="padding:20px"><h3>Automatischer Pausenabzug</h3><p class="hint">Gilt nur, wenn weniger Pause gestempelt wurde. Leere Zeilen werden nicht verwendet.</p>${b.map((x, i) => `<div class="bar" style="margin-top:10px">Bei mehr als <input type="number" step="0.25" id="bh${i}" style="width:90px" value="${x.h ?? ""}"> Std. Arbeitszeit mindestens <input type="number" id="bm${i}" style="width:90px" value="${x.m ?? ""}"> Min. Pause</div>`).join("")}<div style="margin-top:14px"><button class="btn pri" onclick="saveBreaks()">Speichern</button></div></div>
+  <div class="panel" style="padding:20px;margin-top:16px"><h3>Feiertage</h3><p class="hint">Bundesweite Feiertage sind immer dabei. Wähle zusätzlich die Feiertage deines Bundeslands. Gestempelt wird an Feiertagen ganz normal. Jeder gearbeitete Feiertag wird dem Mitarbeiter als Urlaubstag gutgeschrieben.</p>${Object.entries(REG).map(([k, v]) => `<label style="display:block;margin:10px 0"><input type="checkbox" ${opt.regional.includes(k) ? "checked" : ""} onchange="togReg('${k}',this.checked)"> ${v.n}</label>`).join("")}</div>`;
+}
+window.saveBreaks = async () => {
+  const b = [0, 1, 2].map(i => ({ h: parseFloat($("#bh" + i).value), m: parseFloat($("#bm" + i).value) })).filter(x => x.h > 0 && x.m > 0).sort((p, q) => p.h - q.h);
+  const r = await sb.from("settings").upsert({ key: "breaks", value: JSON.stringify(b) });
+  toast(r.error ? "Fehler: " + r.error.message : "Gespeichert"); load();
+};
+window.togReg = async (k, on) => {
+  const l = new Set(opt.regional); on ? l.add(k) : l.delete(k);
+  const r = await sb.from("settings").upsert({ key: "regional", value: JSON.stringify([...l]) });
+  toast(r.error ? "Fehler: " + r.error.message : "Gespeichert"); load();
+};
+function adminAbs() {
+  const Y = month.getFullYear(), y = Y * 12 + month.getMonth(), list = absent.filter(a => ymOf(a.day + "T12:00") === y).sort((a, b) => a.day < b.day ? 1 : -1);
+  const rows = emps.filter(e => e.active).map(e => {
+    const mine = absent.filter(a => a.employee_id === e.id && new Date(a.day + "T12:00").getFullYear() === Y), taken = mine.filter(a => a.type === "Urlaub").length, sick = mine.filter(a => a.type === "Krank").length, hol = workedHol(e.id, Y);
+    const rest = Number(e.vacation_days || 0) + Number(e.vacation_carry || 0) + hol - taken;
+    return `<tr><td><strong>${esc(e.name)}</strong></td><td class="n"><input type="number" step="0.5" style="width:80px" value="${e.vacation_days || 0}" onchange="saveEmp('${e.id}',{vacation_days:+this.value})"></td><td class="n"><input type="number" step="0.5" style="width:80px" value="${e.vacation_carry || 0}" onchange="saveEmp('${e.id}',{vacation_carry:+this.value})"></td><td class="n">${hol}</td><td class="n">${taken}</td><td class="n ${rest >= 0 ? "pos" : "neg"}">${rest}</td><td class="n">${sick}</td></tr>`;
+  }).join("");
+  return `<h3 style="margin-bottom:12px">Urlaubskonto ${Y}</h3><div class="panel"><table><tr><th>Mitarbeiter</th><th class="n">Anspruch (Tage)</th><th class="n">Übertrag Vorjahr</th><th class="n">Feiertage gearbeitet</th><th class="n">Urlaub genommen</th><th class="n">Resturlaub</th><th class="n">Krankheitstage</th></tr>${rows}</table></div>
+  <p class="hint">Resturlaub = Anspruch + Übertrag + gearbeitete Feiertage − genommener Urlaub. Die Feiertage stellst du unter „Einstellungen“ ein. Urlaub und Krankheit zählen außerdem als Ist-Stunden.</p><div style="height:22px"></div>` +
+  monthBar(`<button class="btn pri" onclick="addAbs()">Eintrag hinzufügen</button>`) + (!list.length ? `<div class="panel"><div class="empty">Keine Einträge in diesem Monat.</div></div>` :
+  `<div class="panel"><table><tr><th>Mitarbeiter</th><th>Datum</th><th>Art</th><th class="n">Stunden</th><th></th></tr>${list.map(a => `<tr><td>${esc(emps.find(e => e.id === a.employee_id)?.name)}</td><td>${new Date(a.day + "T12:00").toLocaleDateString("de-DE")}</td><td>${esc(a.type)}</td><td class="n">${fmtH(a.hours * 3600000)}</td><td class="n"><button class="btn" onclick="delAbs('${a.id}')">Löschen</button></td></tr>`).join("")}</table></div>`);
+}
+window.addAbs = () => {
+  const d = $("#dlg");
+  d.innerHTML = `<h3>Urlaub / Krankheit</h3><label>Mitarbeiter</label><select id="a_e" style="width:100%">${emps.filter(e => e.active).map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join("")}</select><label>Art</label><select id="a_t" style="width:100%"><option>Urlaub</option><option>Krank</option></select><label>Von</label><input class="w" id="a_d" type="date" value="${toLocal(new Date()).slice(0, 10)}"><label>Bis (leer = nur ein Tag)</label><input class="w" id="a_d2" type="date"><label>Stunden pro Tag</label><input class="w" id="a_h" type="number" step="0.25" value="8"><label><input type="checkbox" id="a_w"> Samstag und Sonntag überspringen</label><div class="row"><button class="btn pri" onclick="saveAbs()">Speichern</button><button class="btn" onclick="$('#dlg').close()">Abbrechen</button></div>`;
+  d.showModal();
+};
+window.saveAbs = async () => {
+  const d1 = new Date($("#a_d").value + "T12:00"), d2 = $("#a_d2").value ? new Date($("#a_d2").value + "T12:00") : d1, rows = [];
+  if (isNaN(d1) || d2 < d1) return toast("Bitte Datum prüfen");
+  for (let d = new Date(d1); d <= d2; d.setDate(d.getDate() + 1)) { if ($("#a_w").checked && [0, 6].includes(d.getDay())) continue; rows.push({ employee_id: $("#a_e").value, day: toLocal(d).slice(0, 10), type: $("#a_t").value, hours: +$("#a_h").value || 0 }); }
+  const r = await sb.from("absences").insert(rows);
+  if (r.error) return toast("Fehler: " + r.error.message);
+  $("#dlg").close(); toast("Gespeichert"); load();
+};
+window.delAbs = async id => { if (!confirm("Eintrag löschen?")) return; await sb.from("absences").delete().eq("id", id); load(); };
+window.backup = () => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify({ exportiert: new Date().toISOString(), employees: emps, shifts, absences: absent }, null, 1)], { type: "application/json" })); a.download = "Backup_Stempeluhr_" + new Date().toISOString().slice(0, 10) + ".json"; a.click(); };
+window.report = id => {
+  const e = emps.find(x => x.id === id), y = month.getFullYear() * 12 + month.getMonth(), st = stats().find(x => x.e.id === id), dd = d => new Date(d).toLocaleDateString("de-DE");
+  const rows = monthShifts(id).sort((a, b) => new Date(a.start_at) - new Date(b.start_at)).map(s => `<tr><td>${dd(s.start_at)}</td><td>${fmtT(s.start_at)}</td><td>${s.end_at ? fmtT(s.end_at) : "offen"}</td><td>${Math.round(effBreak(s) / MIN)} Min</td><td>${fmtH(workMs(s))}</td></tr>`).join("");
+  const ab = absent.filter(a => a.employee_id === id && ymOf(a.day + "T12:00") === y).sort((a, b) => a.day < b.day ? -1 : 1).map(a => `<tr><td>${dd(a.day + "T12:00")}</td><td colspan="3">${esc(a.type)}</td><td>${fmtH(a.hours * 3600000)}</td></tr>`).join("");
+  const w = window.open("", "_blank");
+  w.document.write(`<!DOCTYPE html><meta charset="utf-8"><title>Monatsbericht ${esc(e.name)}</title><style>body{font-family:Arial,sans-serif;padding:30px}table{border-collapse:collapse;width:100%;margin:16px 0}td,th{border-bottom:1px solid #ccc;padding:8px;text-align:left}</style><h2>Monatsbericht ${esc(e.name)}</h2><p>${month.toLocaleDateString("de-DE", { month: "long", year: "numeric" })}</p><table><tr><th>Datum</th><th>Beginn</th><th>Ende</th><th>Pause</th><th>Arbeitszeit</th></tr>${rows}${ab}</table><p>Ist: <b>${fmtH(st.ist)}</b> · Soll: <b>${fmtH(st.soll)}</b> · Plus/Minus Monat: <b>${fmtSaldo(st.saldo)}</b> · Gesamtsaldo: <b>${fmtSaldo(st.total)}</b></p><script>setTimeout(function(){print()},300)<\/script>`);
+  w.document.close();
+};
+
+/* ---------- Admin-Aktionen ---------- */
+window.saveEmp = async (id, patch) => { const r = await sb.from("employees").update(patch).eq("id", id); toast(r.error ? "Fehler: " + r.error.message : "Gespeichert"); load(); };
+window.addEmp = async () => { const n = prompt("Name des Mitarbeiters:"); if (!n) return; const t = prompt("Soll-Stunden pro Monat:", "100"); const r = await sb.from("employees").insert({ name: n.trim(), target_hours: +t || 0 }); toast(r.error ? "Fehler: " + r.error.message : "Angelegt"); load(); };
+window.editShift = id => {
+  const s = id ? shifts.find(x => x.id === id) : { employee_id: emps[0]?.id, start_at: new Date().toISOString(), end_at: null, breaks: [] };
+  const d = $("#dlg");
+  d.innerHTML = `<h3>${id ? "Schicht korrigieren" : "Schicht hinzufügen"}</h3>
+  <label>Mitarbeiter</label><select id="f_e" class="w" style="width:100%">${emps.map(e => `<option value="${e.id}" ${e.id === s.employee_id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select>
+  <label>Beginn</label><input class="w" id="f_s" type="datetime-local" value="${toLocal(s.start_at)}">
+  <label>Ende (leer = noch eingestempelt)</label><input class="w" id="f_x" type="datetime-local" value="${s.end_at ? toLocal(s.end_at) : ""}">
+  <label>Pause gesamt (Minuten)</label><input class="w" id="f_b" type="number" min="0" value="${Math.round(breakMs(s) / MIN)}">
+  <div class="row"><button class="btn pri" onclick="saveShift('${id || ""}')">Speichern</button><button class="btn" onclick="$('#dlg').close()">Abbrechen</button><span class="sp"></span>${id ? `<button class="btn" onclick="delShift('${id}')">Löschen</button>` : ""}</div>`;
+  d.showModal();
+};
+window.saveShift = async id => {
+  const start = new Date($("#f_s").value), endV = $("#f_x").value, end = endV ? new Date(endV) : null, bm = +$("#f_b").value || 0;
+  if (isNaN(start)) return toast("Bitte Beginn angeben");
+  if (end && end <= start) return toast("Ende muss nach dem Beginn liegen");
+  const old = id ? shifts.find(x => x.id === id) : null;
+  const same = old && Math.round(breakMs(old) / MIN) === bm;
+  const breaks = same ? old.breaks : (bm ? [{ s: new Date(+start + 1).toISOString(), e: new Date(+start + 1 + bm * MIN).toISOString() }] : []);
+  const row = { employee_id: $("#f_e").value, start_at: start.toISOString(), end_at: end ? end.toISOString() : null, breaks };
+  const r = id ? await sb.from("shifts").update(row).eq("id", id) : await sb.from("shifts").insert(row);
+  if (r.error) return toast("Fehler: " + r.error.message);
+  $("#dlg").close(); toast("Gespeichert"); load();
+};
+window.delShift = async id => { if (!confirm("Schicht wirklich löschen?")) return; await sb.from("shifts").delete().eq("id", id); $("#dlg").close(); load(); };
+const ym = () => month.getFullYear() + "-" + String(month.getMonth() + 1).padStart(2, "0");
+window.exportMonth = () => download(`Monatsuebersicht_${ym()}.csv`, csv([["Mitarbeiter", "Ist (Std)", "Soll (Std)", "Plus/Minus (Std)", "Gesamtsaldo (Std)", "Ist (h:mm)", "Soll (h:mm)", "Saldo (h:mm)"], ...stats().map(x => [x.e.name, dec(x.ist), dec(x.soll), dec(x.saldo), dec(x.total), fmtH(x.ist), fmtH(x.soll), fmtSaldo(x.saldo)])]));
+window.exportShifts = () => download(`Schichten_${ym()}.csv`, csv([["Mitarbeiter", "Datum", "Beginn", "Ende", "Pause (Min)", "Arbeitszeit (Std)"], ...shifts.filter(s => new Date(s.start_at) >= mStart() && new Date(s.start_at) < mEnd()).sort((a, b) => new Date(a.start_at) - new Date(b.start_at)).map(s => [emps.find(e => e.id === s.employee_id)?.name || "", new Date(s.start_at).toLocaleDateString("de-DE"), fmtT(s.start_at), s.end_at ? fmtT(s.end_at) : "offen", Math.round(effBreak(s) / MIN), dec(workMs(s))])]));
+
+/* ---------- Start ---------- */
+const sha = async x => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(x)))].map(b => b.toString(16).padStart(2, "0")).join("");
+async function unlock() {
+  if (sessionStorage.getItem("adm") === "1") return true;
+  const r = await sb.from("settings").select("value").eq("key", "admin_pw").maybeSingle();
+  if (r.error) { toast("Fehler: " + r.error.message); return false; }
+  if (!r.data) { const p = prompt("Noch kein Admin-Passwort. Neues Passwort festlegen:"); if (!p) return false; await sb.from("settings").upsert({ key: "admin_pw", value: await sha(p) }); sessionStorage.setItem("adm", "1"); return true; }
+  const p = prompt("Admin-Passwort:"); if (!p) return false;
+  if (await sha(p) !== r.data.value) { toast("Falsches Passwort"); return false; }
+  sessionStorage.setItem("adm", "1"); return true;
+}
+window.setPw = async () => { const p = prompt("Neues Admin-Passwort:"); if (!p) return; await sb.from("settings").upsert({ key: "admin_pw", value: await sha(p) }); toast("Passwort geändert"); };
+$("#mode").onclick = async () => { if (view === "kiosk") { if (!await unlock()) return; view = "admin"; } else { view = "kiosk"; sessionStorage.removeItem("adm"); } sel = null; render(); };
+setInterval(() => { const n = new Date(); $("#clock").textContent = n.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }); }, 1000);
+function setup() {
+  $("#app").innerHTML = `<div class="setup"><h2>Verbindung einrichten</h2><p>Trage die Daten deines Supabase-Projekts ein (Project Settings → API). Alternativ trägst du sie oben in der Datei bei SUPABASE_URL und SUPABASE_KEY ein, dann gilt das für alle Geräte.</p>
+  <input id="u" placeholder="Project URL (https://xxxx.supabase.co)"><input id="k" placeholder="anon public key"><button class="btn pri" onclick="saveCfg()">Verbinden</button></div>`;
+}
+window.saveCfg = () => { localStorage.setItem("sb_url", $("#u").value.trim()); localStorage.setItem("sb_key", $("#k").value.trim()); location.reload(); };
+if (!cfg.url || !cfg.key) setup();
+else {
+  sb = supabase.createClient(cfg.url, cfg.key);
+  load();
+  sb.channel("live").on("postgres_changes", { event: "*", schema: "public" }, () => { if (!$("#dlg").open) load(); }).subscribe();
+  setInterval(() => { if (!$("#dlg").open && document.activeElement.tagName !== "INPUT") load(); }, 30000);
+  setInterval(() => { if (view === "kiosk" ? sel : tab === "live") render(); }, 20000);
+}
+</script>
+</body>
+</html>
